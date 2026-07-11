@@ -4,8 +4,8 @@ This folder contains implementation prompts designed for Claude Code.
 
 Each prompt should instruct Claude Code to:
 
-1. Read `docs/MASTER_ARCHITECTURE.md`.
-2. Read `docs/CLAUDE.md`.
+1. Read `docs/00-foundation/MASTER_ARCHITECTURE.md`.
+2. Read `docs/00-foundation/CLAUDE.md`.
 3. Read the relevant subsystem specification.
 4. Inspect existing code before editing.
 5. Implement exactly what is specified.
@@ -20,8 +20,8 @@ Each prompt should instruct Claude Code to:
 
 Read these files first:
 
-- `docs/MASTER_ARCHITECTURE.md`
-- `docs/CLAUDE.md`
+- `docs/00-foundation/MASTER_ARCHITECTURE.md`
+- `docs/00-foundation/CLAUDE.md`
 - `<relevant spec file>`
 
 Implement `<module>` exactly as specified.

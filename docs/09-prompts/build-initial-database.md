@@ -2,9 +2,9 @@
 
 Read these files first:
 
-- `docs/MASTER_ARCHITECTURE.md`
-- `docs/CLAUDE.md`
-- `docs/database/01-data-model.md`
+- `docs/00-foundation/MASTER_ARCHITECTURE.md`
+- `docs/00-foundation/CLAUDE.md`
+- `docs/03-database/01-data-model.md`
 
 Implement the initial database layer exactly as specified.
 
@@ -29,7 +29,7 @@ Implement the initial database layer exactly as specified.
 ## Acceptance Criteria
 
 - Prisma schema validates.
-- Migration includes all tables from `docs/database/01-data-model.md`.
+- Migration includes all tables from `docs/03-database/01-data-model.md`.
 - Indexes and unique constraints match the spec.
 - pgvector extension is handled.
 - No application business logic is added during this step.

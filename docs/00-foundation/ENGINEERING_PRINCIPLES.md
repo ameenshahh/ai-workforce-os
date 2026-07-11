@@ -48,5 +48,5 @@ High-risk areas such as runtime, permissions, tenant isolation, billing, webhook
 
 ## No Architecture by Accident
 
-Claude Code and human developers must not invent major patterns during implementation. New patterns require documentation and an entry in `docs/DECISIONS.md`.
+Claude Code and human developers must not invent major patterns during implementation. New patterns require documentation and an entry in `docs/00-foundation/DECISIONS.md`.
 

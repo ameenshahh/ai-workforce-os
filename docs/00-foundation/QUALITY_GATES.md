@@ -4,7 +4,7 @@ Every meaningful code change must satisfy these gates before merge.
 
 ## Required for All Changes
 
-- Code follows `docs/CLAUDE.md`.
+- Code follows `docs/00-foundation/CLAUDE.md`.
 - Relevant documentation is updated.
 - No unrelated refactors.
 - No hardcoded secrets.

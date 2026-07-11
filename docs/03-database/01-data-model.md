@@ -763,9 +763,9 @@ Use this prompt after the backend project has been scaffolded:
 ```markdown
 Read:
 
-- `docs/MASTER_ARCHITECTURE.md`
-- `docs/CLAUDE.md`
-- `docs/database/01-data-model.md`
+- `docs/00-foundation/MASTER_ARCHITECTURE.md`
+- `docs/00-foundation/CLAUDE.md`
+- `docs/03-database/01-data-model.md`
 
 Implement the initial Prisma data model and migrations exactly as specified.
 

@@ -24,11 +24,11 @@ During the Architecture Phase:
 When instructions conflict, follow this order:
 
 1. User's current explicit request.
-2. `docs/MASTER_ARCHITECTURE.md`
-3. `docs/DECISIONS.md`
+2. `docs/00-foundation/MASTER_ARCHITECTURE.md`
+3. `docs/00-foundation/DECISIONS.md`
 4. Detailed subsystem spec in `docs/`
-5. `docs/ENGINEERING_PRINCIPLES.md`
-6. `docs/QUALITY_GATES.md`
+5. `docs/00-foundation/ENGINEERING_PRINCIPLES.md`
+6. `docs/00-foundation/QUALITY_GATES.md`
 7. Existing code conventions
 
 If a conflict remains, stop and ask for clarification.
@@ -43,7 +43,7 @@ If a conflict remains, stop and ask for clarification.
 - A `Skill` is a server-side executable capability.
 - A `Channel` is a communication transport.
 
-See `docs/GLOSSARY.md` before introducing new terms.
+See `docs/00-foundation/GLOSSARY.md` before introducing new terms.
 
 ## 5. Backend Standards
 
@@ -345,8 +345,8 @@ Every major feature spec should include:
 
 When asked to implement a module:
 
-1. Read `docs/MASTER_ARCHITECTURE.md`.
-2. Read `docs/CLAUDE.md`.
+1. Read `docs/00-foundation/MASTER_ARCHITECTURE.md`.
+2. Read `docs/00-foundation/CLAUDE.md`.
 3. Read the relevant detailed spec.
 4. Inspect existing code.
 5. Implement the smallest complete version.

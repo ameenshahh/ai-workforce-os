@@ -413,7 +413,7 @@ Core table groups:
 - Workflows: workflows, workflow_versions, workflow_runs, workflow_steps
 - Operations: audit_logs, api_keys, notifications
 
-Detailed schemas belong in `docs/database/`.
+Detailed schemas belong in `docs/03-database/`.
 
 ## 11. API Architecture
 
@@ -664,14 +664,16 @@ Do not:
 
 This file defines system-wide rules. Detailed specs should live in:
 
-- `docs/product/` for product requirements and user journeys.
-- `docs/architecture/` for cross-cutting architecture.
-- `docs/database/` for schema and migrations.
-- `docs/backend/` for NestJS modules.
-- `docs/ai/` for runtime, prompt, RAG, memory, and evaluation.
-- `docs/frontend/` for UI, pages, components, and state.
-- `docs/deployment/` for infrastructure and operations.
-- `docs/prompts/` for Claude Code implementation prompts.
+- `docs/01-domain/` for the domain model, core concepts, and ubiquitous language.
+- `docs/02-architecture/` for cross-cutting architecture.
+- `docs/03-database/` for schema and migrations.
+- `docs/04-backend/` for NestJS modules.
+- `docs/05-ai/` for runtime, prompt, RAG, memory, and evaluation.
+- `docs/06-frontend/` for UI, pages, components, and state.
+- `docs/07-deployment/` for infrastructure and operations.
+- `docs/08-testing/` for test strategy, coverage, and quality gates.
+- `docs/09-prompts/` for Claude Code implementation prompts.
+- `docs/adr/` for numbered Architecture Decision Records.
 
 ## 24. Acceptance Criteria for the Architecture
 

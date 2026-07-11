@@ -2,10 +2,10 @@
 
 Read these files first:
 
-- `docs/MASTER_ARCHITECTURE.md`
-- `docs/CLAUDE.md`
-- `docs/database/01-data-model.md`
-- `docs/backend/01-backend-architecture.md`
+- `docs/00-foundation/MASTER_ARCHITECTURE.md`
+- `docs/00-foundation/CLAUDE.md`
+- `docs/03-database/01-data-model.md`
+- `docs/04-backend/01-backend-architecture.md`
 
 Scaffold the backend foundation exactly as specified.
 

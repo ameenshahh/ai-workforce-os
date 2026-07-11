@@ -25,11 +25,11 @@ This specification covers:
 
 This document does not define the complete implementation of individual modules. Those belong in later specs such as:
 
-- `docs/backend/02-auth-and-organizations.md`
-- `docs/backend/03-workers.md`
-- `docs/backend/04-conversations.md`
-- `docs/backend/05-channels.md`
-- `docs/ai/01-worker-runtime.md`
+- `docs/04-backend/02-auth-and-organizations.md`
+- `docs/04-backend/03-workers.md`
+- `docs/04-backend/04-conversations.md`
+- `docs/04-backend/05-channels.md`
+- `docs/05-ai/01-worker-runtime.md`
 
 ## 3. Non-Goals
 
@@ -644,10 +644,10 @@ Use this prompt when scaffolding the backend:
 ```markdown
 Read:
 
-- `docs/MASTER_ARCHITECTURE.md`
-- `docs/CLAUDE.md`
-- `docs/database/01-data-model.md`
-- `docs/backend/01-backend-architecture.md`
+- `docs/00-foundation/MASTER_ARCHITECTURE.md`
+- `docs/00-foundation/CLAUDE.md`
+- `docs/03-database/01-data-model.md`
+- `docs/04-backend/01-backend-architecture.md`
 
 Scaffold the NestJS backend architecture exactly as specified.
 
