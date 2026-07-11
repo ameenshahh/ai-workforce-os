@@ -38,10 +38,12 @@ Bounded contexts are grouped using a strategic Domain-Driven Design lens. **Core
 | Classification | Domains |
 |----------------|---------|
 | Core | Worker (Agent), AI Runtime, Skill, Knowledge, Memory, Conversation |
-| Supporting | Organization, Channel, Customer, Workflow, Analytics, Media & Storage |
+| Supporting | Organization, Channel, Customer, Operators, Workflow, Integrations, Analytics, Media & Storage, Secrets |
 | Generic | Identity & Access, Notification, Billing, Audit |
 
 The core domains are protected most carefully: their boundaries, invariants, and events change only through deliberate decisions recorded as ADRs.
+
+**Prompt** is deliberately *not* listed as a standalone domain. It is evaluated in the Worker section and, for the reasons given there, remains a concept owned inside the Worker domain (as the Prompt Profile), with a possible future extraction to a Prompt Library (see Future Domains).
 
 ---
 
@@ -65,6 +67,9 @@ The core domains are protected most carefully: their boundaries, invariants, and
 | 14 | Billing | Generic | Subscription plans and usage metering for agencies. |
 | 15 | Audit | Generic | Immutable record of sensitive and security-relevant actions. |
 | 16 | Media & Storage | Supporting | Durable storage and retrieval of files and attachments (S3). |
+| 17 | Operators | Supporting | Human operators — their presence, availability, queues, assignments, and the handoff process. |
+| 18 | Integrations | Supporting | Managed connections to external systems (CRMs, email, calendars, commerce) that Skills consume. |
+| 19 | Secrets | Supporting | Secure storage of credentials, API keys, OAuth tokens, and encryption keys. |
 
 ---
 
@@ -88,6 +93,9 @@ graph TB
         WF["Workflow"]
         ANALYTICS["Analytics"]
         MEDIA["Media & Storage"]
+        OPS["Operators"]
+        INTEG["Integrations"]
+        SECR["Secrets"]
     end
 
     subgraph Core["Core Subdomains"]
@@ -116,19 +124,27 @@ graph TB
     MEM --> CONV
     WF --> SKILL
     WF --> CONV
+    SKILL --> INTEG
+    INTEG --> SECR
+    CHAN --> SECR
+    OPS --> CONV
+    OPS --> IAM
+    RUNTIME --> OPS
     ANALYTICS -.-> RUNTIME
     ANALYTICS -.-> CONV
     ANALYTICS -.-> SKILL
     BILL -.-> ANALYTICS
     NOTIF -.-> CONV
+    NOTIF -.-> OPS
     AUDIT -.-> IAM
     AUDIT -.-> SKILL
+    AUDIT -.-> INTEG
 
     classDef core fill:#1f6feb,stroke:#0d1117,color:#ffffff;
     classDef supporting fill:#238636,stroke:#0d1117,color:#ffffff;
     classDef generic fill:#6e7681,stroke:#0d1117,color:#ffffff;
     class WORKER,RUNTIME,CONV,SKILL,KNOW,MEM core;
-    class ORG,CHAN,CUST,WF,ANALYTICS,MEDIA supporting;
+    class ORG,CHAN,CUST,WF,ANALYTICS,MEDIA,OPS,INTEG,SECR supporting;
     class IAM,NOTIF,BILL,AUDIT generic;
 ```
 
@@ -225,11 +241,24 @@ Each context below follows the same structure: purpose, owned entities, responsi
 
 ### 3. Worker / Agent (Core)
 
-**Purpose.** The Worker is the configurable AI employee — the heart of the product. Presented to customers as an "Agent," a Worker bundles everything that defines how it behaves: its brain (model, prompt, tone, reasoning settings), the skills it may use, the knowledge it can draw on, the channels it operates on, the policies that constrain it, its goals, and its version history.
+**Purpose.** The Worker is the configurable AI employee — the heart of the product. Presented to customers as an "Agent," a Worker is a composition of everything that defines how it behaves. It is best understood as an *aggregate root*: a single consistency boundary that owns a set of tightly-related configuration concepts and guarantees they are only ever changed together and versioned together.
 
-**Owned entities.** Worker; Brain (model, system prompt, response style, reasoning configuration); Worker Version (immutable snapshot of a full configuration); Policy (a rule that constrains behavior, e.g., require human review before offering a discount); Worker-to-Skill attachments; Worker-to-Knowledge attachments; Worker-to-Channel bindings; Worker goals and configured metrics targets.
+**Conceptual composition.** A Worker conceptually owns the following parts. These are facets of the Worker aggregate, not independent domains — none has a lifecycle apart from the Worker that contains it.
 
-**Responsibilities.** Own the definition and lifecycle of Workers. Validate that a configuration is coherent (attached skills exist, model is permitted, policies are well-formed). Produce immutable Worker Versions so runtime behavior is reproducible and auditable. Expose the resolved, versioned configuration the AI Runtime loads at execution time.
+- **Brain** — the reasoning core: which model is used, and the model-level reasoning settings (e.g., temperature, tool-use behavior). *What the Worker thinks with.*
+- **Goals** — the outcomes the Worker is configured to pursue (qualify leads, book appointments, resolve support), used to steer behavior and to evaluate success. *What the Worker is for.*
+- **Capabilities** — the declared, high-level abilities the Worker is permitted to exercise (e.g., "can book appointments," "can issue refunds up to a limit"). Capabilities are the intent; Skill Attachments are the concrete grants that realize them. *What the Worker is allowed to do.*
+- **Prompt Profile** — the authored, versioned prompt material: system prompt, tone/style guidance, response format rules, and reusable prompt fragments. *How the Worker is instructed.* (See the Prompt evaluation below for why this lives in Worker.)
+- **Policies** — rules that constrain behavior and are enforced by the Runtime before a response is sent (e.g., require human review before offering a discount). *What the Worker must never or must always do.*
+- **Knowledge Attachments** — references to Knowledge sources the Worker may retrieve from. Ownership of the content stays with Knowledge; the Worker owns only the *attachment* (which sources, with what scope).
+- **Skill Attachments** — references to Skills the Worker may invoke, pinned to specific Skill versions. Ownership of the Skill stays with Skill; the Worker owns only the *attachment* and its configuration.
+- **Runtime Configuration** — declarative execution settings the Runtime honors (e.g., maximum tool-loop iterations, response length limits, retrieval breadth, latency/cost ceilings). This is configuration *data*, not execution *behavior* — the Runtime domain owns the behavior.
+- **Personality** — the durable persona of the Worker (name, voice, character) that shapes tone across every conversation, distinct from per-message Prompt Profile mechanics.
+- **Version** — an immutable snapshot binding all of the above (including pinned Skill and Knowledge versions) so every execution is reproducible and auditable.
+
+**Owned entities.** Worker (aggregate root); Brain; Goals; Capabilities; Prompt Profile; Policy (a rule that constrains behavior); Worker-to-Skill attachments; Worker-to-Knowledge attachments; Worker-to-Channel bindings; Runtime Configuration; Personality; Worker Version (immutable snapshot of the full composition, with pinned Skill/Knowledge versions).
+
+**Responsibilities.** Own the definition and lifecycle of Workers and every facet above. Validate that a configuration is coherent (attached skills and knowledge exist and are permitted, model is allowed, capabilities are backed by concrete skill grants, policies are well-formed). Produce immutable Worker Versions so runtime behavior is reproducible and auditable. Expose the single resolved, versioned configuration the AI Runtime loads at execution time.
 
 **Invariants.** Every Worker belongs to exactly one Organization. A Worker can only reference Skills, Knowledge sources, and Channels that belong to the same Organization. Each execution runs against a specific, immutable Worker Version; editing a Worker produces a new Version rather than mutating a prior one. A Worker cannot be marked active for a Channel it is not bound to. Policies attached to a Worker are always evaluated by the Runtime before a response is sent.
 
@@ -244,6 +273,18 @@ Each context below follows the same structure: purpose, owned entities, responsi
 **Boundaries.** Worker owns *configuration and identity of the AI employee*, not its *execution* — running a Worker is the AI Runtime's job. It defines which Skills are attached but does not define or execute them (Skill domain). It defines which Knowledge is available but does not ingest or retrieve it (Knowledge domain).
 
 **Out of scope.** Prompt execution, tool loops, LLM calls, conversation state, and analytics — all owned by other domains.
+
+#### Prompt: Domain Evaluation
+
+**Question.** Should Prompt be its own bounded context, or remain a facet of Worker?
+
+**Recommendation: Prompt remains inside the Worker domain (as the Prompt Profile) for the MVP and V1.**
+
+**Why it stays in Worker.** A prompt has no meaningful lifecycle independent of the Worker it configures. It is created, versioned, activated, and rolled back together with the rest of the Worker's configuration — the entire value of a Worker Version is that the prompt, model, policies, and skill/knowledge pins move as one immutable unit. Extracting Prompt into a separate context would split a single consistency boundary across two domains, forcing distributed coordination (and a shared version clock) for something that is always changed atomically. It would also create an entity — "the prompt" — that is co-owned by Worker and Prompt, violating the single-owner rule. At this stage the prompt is *configuration data the Worker owns*, not a shared, reusable asset with its own governance.
+
+**When it should be extracted.** Prompt should graduate to its own domain — a **Prompt Library** (see Future Domains) — when prompts become *shared, first-class assets* rather than per-Worker configuration: when the product needs reusable prompt templates across many Workers, independent prompt versioning and A/B testing, a prompt approval/governance workflow, or a marketplace of prompts. At that point the Worker would *reference* a library prompt version instead of owning the prompt text, and the Prompt Library would own authoring, versioning, and governance.
+
+**If it were extracted (boundary sketch).** For future reference only, without implementation detail: a Prompt domain would own **responsibilities** (authoring, versioning, testing, and governance of reusable prompt templates and fragments), **ownership** (Prompt Template and Prompt Version entities, and their approval state), and **boundaries** (it would own the reusable prompt *asset*; a Worker Version would reference a specific Prompt Version but never mutate it; the Runtime would resolve the referenced Prompt Version at execution time). Until those needs are real, this remains deliberately inside Worker.
 
 ### 4. AI Runtime (Core)
 
@@ -267,27 +308,42 @@ Each context below follows the same structure: purpose, owned entities, responsi
 
 **Out of scope.** Deterministic non-AI automation (Workflow), long-term storage of messages (Conversation), and the definition of skills or knowledge.
 
+#### Conceptual Runtime Components
+
+The AI Runtime is a single bounded context, but internally it is organized into conceptual components arranged as a pipeline. These are *domain concepts*, not implementation classes or services — they describe responsibilities within the Runtime, and the AI Runtime spec in `docs/05-ai/` will refine them. Each component reads from other domains but the Runtime owns the orchestration.
+
+- **Context Builder** — resolves everything the run needs before any thinking happens: the Worker Version and its policies, the Conversation's recent message history and handoff state, the Customer, and organization context. It produces a single, coherent execution context. *It gathers; it does not reason.*
+- **Prompt Builder** — assembles the actual prompt sent to the model from the Worker's Prompt Profile and Personality, the built context, retrieved Knowledge chunks, and retrieved Memory facts. It is the runtime consumer of the Worker's prompt material; it does not author prompts (Worker owns authoring).
+- **Planner** — decides, within a bounded budget, what the model should attempt next: whether to answer directly, retrieve more, or call a tool. It represents the reasoning/decision step of the loop and enforces the Runtime Configuration's limits.
+- **Tool Loop** — the bounded iteration that lets the model request tool calls, receives results, and continues until a final answer or the iteration limit is reached. It guarantees the loop always terminates and never executes anything outside the Tool Registry.
+- **Tool Registry** — the runtime-facing catalog of tools available *to this specific run*: the Skills attached to the Worker Version, exposed to the model as callable tools. It is a projection of the authoritative Skill Registry (owned by the Skill domain) scoped and filtered to the current Worker and permissions — the Runtime does not define skills, it only exposes the permitted ones.
+- **LLM Provider** — the conceptual boundary to the language-model provider (via LiteLLM/OpenAI tool calling). It abstracts model access, records each call's tokens/cost/latency, and isolates the rest of the Runtime from provider specifics. *It calls the model; it makes no product decisions.*
+- **Response Builder** — turns the model's final output into the outbound response, applies Worker Policies as a final gate, formats the reply, and hands it to Conversation for dispatch. If a policy blocks the draft, it routes to human handoff rather than sending.
+- **Memory Extractor** — after the exchange, asynchronously derives structured facts to persist. It is the Runtime's trigger into the Memory domain; Memory owns the facts and the extraction rules, while the Extractor is the runtime step that initiates extraction.
+
+The reference ordering is: Context Builder → Prompt Builder → Planner → Tool Loop (Tool Registry + LLM Provider) → Response Builder → Memory Extractor. This mirrors the Domain Interaction Diagram above.
+
 ### 5. Conversation (Core)
 
 **Purpose.** Conversation owns the threaded record of communication between a Customer, a Worker, and optionally human operators, along with the human-handoff state. It is the backbone of the unified inbox that operators use to review, take over, and debug interactions.
 
-**Owned entities.** Conversation (a thread); Message (inbound, outbound, or system, with author type and content); Handoff state and Handoff transitions; Message attachment references (pointing to Media & Storage); Conversation assignment (which operator, if any, owns the thread).
+**Owned entities.** Conversation (a thread); Message (inbound, outbound, or system, with author type and content); Handoff status *on the thread* (a flag such as bot-driven or human-controlled, plus a reference to the currently assigned Operator); Message attachment references (pointing to Media & Storage). Note: the Operator entities, availability, queues, routing, and the Assignment records themselves are owned by the **Operators** domain — Conversation holds only the resulting status and an operator reference, never operator management.
 
-**Responsibilities.** Create and maintain conversation threads keyed to a Customer and Channel. Persist every inbound and outbound message with authorship and ordering. Track and transition human-handoff state. Dispatch outbound messages to the Channel for delivery. Provide the message history the Runtime reads as context and the inbox the dashboard renders.
+**Responsibilities.** Create and maintain conversation threads keyed to a Customer and Channel. Persist every inbound and outbound message with authorship and ordering. Record the thread's handoff status and reflect assignment as directed by the Operators domain. Dispatch outbound messages to the Channel for delivery. Provide the message history the Runtime reads as context and the inbox the dashboard renders.
 
 **Invariants.** Every Conversation and Message belongs to exactly one Organization. A Message always has an unambiguous author type (Customer, Worker, or human operator/system) and a stable ordering within its thread. While a Conversation is in human-handoff state, no Worker-authored messages may be produced by the Runtime. Outbound dispatch to a Channel is recorded as an attempt so delivery can be tracked. A Conversation references exactly one Customer and one Channel.
 
-**Dependencies.** Organization (scoping), Customer (the external party), Channel (delivery of outbound messages), Media & Storage (attachments).
+**Dependencies.** Organization (scoping), Customer (the external party), Channel (delivery of outbound messages), Media & Storage (attachments), Operators (owns assignment and handoff routing; Conversation reflects its decisions on the thread).
 
-**Events published.** MessageReceived, MessageSent, WorkerResponded (persisted), HumanHandoffStarted, HumanHandoffEnded, ConversationAssigned, ConversationClosed.
+**Events published.** MessageReceived, MessageSent, WorkerResponded (persisted), ConversationClosed, HandoffRequested (a signal that a thread needs a human; the Operators domain owns the resulting handoff lifecycle).
 
-**Events consumed.** WorkerResponded from the Runtime (to persist and dispatch), MessageDeliveryUpdated from Channel (to reflect delivery status).
+**Events consumed.** WorkerResponded from the Runtime (to persist and dispatch), MessageDeliveryUpdated from Channel (to reflect delivery status), HumanHandoffStarted / HumanHandoffEnded / ConversationAssigned from Operators (to update the thread's handoff status and operator reference).
 
-**APIs exposed.** Inbox listing and filtering; conversation and message retrieval; sending an operator message; initiating and ending human handoff; assigning a conversation to an operator.
+**APIs exposed.** Inbox listing and filtering; conversation and message retrieval; sending an operator message on an assigned thread; reading a thread's handoff status. (Requesting/ending handoff and assigning operators are Operators-domain operations.)
 
-**Boundaries.** Conversation owns *the record and state of the dialogue*, not *how messages travel* (Channel) or *who the external party is beyond the thread* (Customer). It does not generate Worker responses — it stores and dispatches what the Runtime produces.
+**Boundaries.** Conversation owns *the record and state of the dialogue*, not *how messages travel* (Channel), *who the external party is beyond the thread* (Customer), or *the people and process of human handling* (Operators). It does not generate Worker responses — it stores and dispatches what the Runtime produces.
 
-**Out of scope.** Response generation, channel transport specifics, customer profile and memory, and analytics aggregation.
+**Out of scope.** Response generation, channel transport specifics, customer profile and memory, analytics aggregation, and operator presence/availability/queue/assignment management (Operators).
 
 ### 6. Customer (Supporting)
 
@@ -315,7 +371,7 @@ Each context below follows the same structure: purpose, owned entities, responsi
 
 **Purpose.** Channel is the boundary between the platform and external communication transports — WhatsApp, Instagram, Facebook Messenger, website chat, and future channels. Each Channel Adapter normalizes inbound events into a common shape and sends outbound messages in the transport's own format.
 
-**Owned entities.** Channel (a configured connection for one transport within an Organization); Channel Adapter behavior (per-transport); Inbound webhook event record (raw + normalized) with deduplication key; Outbound send attempt and its delivery status; Channel credentials/configuration references.
+**Owned entities.** Channel (a configured connection for one transport within an Organization); Channel Adapter behavior (per-transport); Inbound webhook event record (raw + normalized) with deduplication key; Outbound send attempt and its delivery status; Channel configuration and a *reference* to its credentials (the credentials themselves are stored in the **Secrets** domain, never held as plaintext by Channel).
 
 **Responsibilities.** Receive and verify inbound webhooks from external platforms. Deduplicate inbound events idempotently. Normalize transport-specific payloads into a canonical MessageReceived event for Conversation. Send outbound messages, respecting each platform's rate limits and formats. Track delivery status of outbound attempts.
 
@@ -343,7 +399,7 @@ Each context below follows the same structure: purpose, owned entities, responsi
 
 **Invariants.** Only registered, server-side skills can be executed — no dynamic or untrusted code execution. A skill executes only if it is attached to the Worker and the acting context holds the skill's required permissions. Every execution validates input before running and output after. Skills declare idempotency behavior, and side-effecting skills are safe under retry. Every skill carries a version; a Worker Version pins the skill versions it may use for reproducibility.
 
-**Dependencies.** Identity & Access (permission evaluation), Knowledge (for knowledge-search skills), and any external systems a specific skill integrates with. It is invoked by the Runtime and by Workflow.
+**Dependencies.** Identity & Access (permission evaluation), Knowledge (for knowledge-search skills), and **Integrations** for any access to an external system (CRM, email, calendar, commerce). A Skill *consumes* an Integration to reach an external system; it never owns the connection, the OAuth flow, or the credentials — those belong to Integrations and Secrets. It is invoked by the Runtime and by Workflow.
 
 **Events published.** SkillExecuted, SkillExecutionFailed, SkillRegistered, SkillDeprecated.
 
@@ -531,6 +587,90 @@ Each context below follows the same structure: purpose, owned entities, responsi
 
 **Out of scope.** Text extraction, chunking, embedding (Knowledge), and any interpretation of content.
 
+### 17. Operators (Supporting)
+
+**Purpose.** Operators owns the human side of the inbox: the people who take over conversations, their availability and presence, the queues they pull from, and the human-handoff process that routes a thread from a Worker to a person and back. Where Conversation owns *the dialogue*, Operators owns *the humans and the process that handle it*.
+
+**Owned entities.** Operator (a platform User acting in a human-support capacity, with an operator profile); Presence and Availability status; Queue (a routable pool of conversations awaiting a human, e.g., by team, skill, or channel); Assignment (the record binding a Conversation to an Operator); Handoff lifecycle record (request, claim, active, return) and its routing rules.
+
+**Responsibilities.** Track which Operators are online, available, or busy. Maintain queues and routing rules that decide which Operator (or team) a handed-off conversation goes to. Assign and reassign conversations to Operators. Drive the human-handoff lifecycle end to end: accept a HandoffRequested signal, place the thread in a queue, assign it, mark it active, and return it to bot control when done. Emit the assignment and handoff events that Conversation reflects on the thread.
+
+**Invariants.** Every Operator, Queue, and Assignment belongs to exactly one Organization. An Operator is always a platform User (Identity & Access); it is never an external Customer. A conversation is assigned to at most one Operator at a time. Handoff routing only assigns to Operators who are permitted and available. The handoff lifecycle is the single source of truth for who is handling a thread; Conversation only mirrors the resulting status.
+
+**Dependencies.** Identity & Access (an Operator is a User with permissions), Organization (scoping), Conversation (the threads being routed and assigned). Consumed by Notification (to alert operators) and Analytics (handoff and workload metrics).
+
+**Events published.** HumanHandoffStarted, HumanHandoffEnded, ConversationAssigned, ConversationReassigned, OperatorPresenceChanged, QueueUpdated.
+
+**Events consumed.** HandoffRequested from Conversation or the Runtime (to begin routing), and permission/role changes from Identity & Access.
+
+**APIs exposed.** Operator presence and availability management; queue configuration and monitoring; claim/assign/reassign a conversation; initiate and end human handoff; operator workload and queue views for the dashboard.
+
+**Boundaries.** Operators owns *people and process*, not *the conversation record* (Conversation) or *who a User is and may do* (Identity & Access — Operators layers routing on top of it). It decides assignment; Conversation merely records the outcome.
+
+**Why Conversation must not own operator management.** Assignment, presence, availability, and queue routing are a different concern with a different lifecycle and a different scaling shape than the message thread. If Conversation owned them, three problems follow: (1) operator state (online/away, current load) would live inside a thread aggregate even though it spans thousands of threads, forcing cross-thread reads and writes through a boundary designed for one dialogue; (2) routing logic — arguably its own small domain — would be buried in the message store, tangling "record what was said" with "decide who should say the next thing"; and (3) the Operator would risk being co-owned by Identity & Access and Conversation. Separating Operators keeps Conversation a clean record of dialogue and gives routing/presence a home that can evolve (skills-based routing, SLAs, shift scheduling) without touching the message model. Conversation therefore holds only a handoff status flag and an operator reference — both projections of decisions the Operators domain makes.
+
+**Out of scope.** Storing messages (Conversation), authenticating or defining User permissions (Identity & Access), and notifying operators (Notification consumes Operators events to do that).
+
+### 18. Integrations (Supporting)
+
+**Purpose.** Integrations owns the managed connections between an Organization and external third-party systems — CRMs, email, calendars, commerce, project tools, and payments — for example HubSpot, Salesforce, Gmail, Google Calendar, Slack, Jira, Shopify, Stripe, and Notion. It is the single place that establishes, authorizes, and maintains a live connection to an external provider, so that Skills can *use* those systems without ever handling connection or credential concerns themselves.
+
+**Owned entities.** Integration Provider (the catalog entry describing a supported external system and its capabilities); Integration Connection (one Organization's authorized link to a provider, including its status and scopes); Connection health/status; a *reference* to the connection's credentials (stored in the **Secrets** domain). Note: OAuth flow orchestration is a responsibility here; the resulting tokens are stored in Secrets, not in Integrations.
+
+**Responsibilities.** Maintain the catalog of supported providers and their capabilities. Run the OAuth/authorization flow to establish a connection. Track connection status, scopes, and health, and surface when a connection needs re-authorization. Provide an authorized, ready-to-use connection handle that Skills consume to make external calls. Refresh tokens and manage connection lifecycle (connect, reconnect, revoke).
+
+**Invariants.** Every Integration Connection belongs to exactly one Organization. Integrations orchestrates OAuth but never stores raw credentials or tokens itself — they always live in Secrets, referenced by handle. A Skill accesses an external system only through an Integration Connection; it never initiates its own OAuth and never reads raw credentials. Connection scopes are explicit, and a connection is only usable for the scopes it was granted. Revoking a connection immediately invalidates the Skills' ability to use it.
+
+**Dependencies.** Secrets (stores the actual tokens/credentials the connection references), Identity & Access (who may connect or manage integrations), Organization (scoping), Audit (external-connection changes are audited). Consumed by Skill (and therefore, transitively, by the Runtime and Workflow).
+
+**Events published.** IntegrationConnected, IntegrationReauthorizationRequired, IntegrationRevoked, IntegrationHealthChanged.
+
+**Events consumed.** OrganizationSuspended (to disable connections), and credential-rotation signals from Secrets.
+
+**APIs exposed.** Provider catalog listing; connect/reconnect/revoke a provider; connection status and health; an internal "get authorized connection" interface that Skills use to obtain a ready connection handle (never raw secrets).
+
+**Boundaries.** Integrations owns *the connection and its authorization*, not *the credential bytes* (Secrets) and not *the business action performed over the connection* (Skill). It is the broker between Skills and the outside world.
+
+**Clarifications (per requirements).** Skills **consume** Integrations. Skills do **not** own OAuth. Skills do **not** own credentials. A Skill says "use the HubSpot connection for this org to create a contact"; Integrations provides the authorized handle and Secrets supplies the token behind the scenes.
+
+**Out of scope.** Storing raw secrets (Secrets), defining what business operation to perform (Skill), and any AI reasoning (Runtime).
+
+### 19. Secrets (Supporting)
+
+**Purpose.** Secrets owns the secure storage and controlled release of sensitive material across the platform: API keys, OAuth tokens, external-system credentials, and encryption keys. It is the single vault so that no other domain ever persists a raw credential.
+
+**Owned entities.** Secret (an encrypted credential with metadata: owning Organization, type, scope, rotation state — never exposing the plaintext at rest to callers); Encryption Key / key reference; Secret access grant. The plaintext value is only ever released to authorized callers at point of use.
+
+**Responsibilities.** Store credentials encrypted at rest. Release a secret's value only to an authorized domain at the moment of use, against an explicit grant. Manage secret lifecycle: creation, rotation, and revocation. Hold the encryption keys (or references to an external key-management service) that protect all other secrets. Emit rotation/revocation signals so dependent domains can react.
+
+**Invariants.** Every Secret belongs to exactly one Organization. No other domain stores raw credentials — Channel, Integrations, Billing, and any credentialed Skill hold only a *reference* to a Secret. Secrets are encrypted at rest and never returned in bulk or logged. Access to a secret is authorized, scoped, and auditable. Rotating or revoking a Secret takes effect immediately for all referencing domains.
+
+**Dependencies.** Identity & Access (authorizing who/what may read a secret), Organization (scoping), Audit (every secret access and change is auditable). An external key-management service may back the encryption keys.
+
+**Events published.** SecretCreated, SecretRotated, SecretRevoked, SecretAccessed (for audit).
+
+**Events consumed.** OrganizationSuspended (to lock secrets), IntegrationRevoked (to revoke the associated tokens).
+
+**APIs exposed.** Store a secret; issue a scoped, short-lived release of a secret's value to an authorized caller; rotate and revoke; secret metadata listing (never plaintext). These interfaces are internal and permission-gated.
+
+**Boundaries.** Secrets owns *the credential material and its protection*, not *what the credential connects to* (Integrations/Channel) or *what is done with it* (Skill). It is a vault, not a broker.
+
+**Out of scope.** Establishing connections or running OAuth flows (Integrations), performing external calls (Skill), and payment processing (Billing references payment-provider tokens stored here but does not move money here).
+
+### Future Domains (informational)
+
+These domains are anticipated but **not** part of the MVP or the current V1 boundary. They are listed here so today's boundaries leave room for them and so they are not accidentally absorbed into an existing domain. Each will get its own detailed section and an ADR when it is actually introduced; the descriptions below are informational only.
+
+- **Marketplace** — a catalog where third parties publish and Organizations discover installable Workers, Skills, or Integrations. Introduces publisher identity, listings, and installation — deliberately deferred (server-side-only skills today).
+- **Templates** — reusable, shareable Worker and Workflow blueprints an Organization can instantiate. Distinct from a live Worker: a Template has no runtime, only a definition to copy from.
+- **Prompt Library** — the future home of Prompt if and when prompts become shared, governed, independently-versioned assets (see the Prompt evaluation under Worker). Would own Prompt Templates and Prompt Versions.
+- **Agent Store** — a customer-facing storefront of prebuilt Agents (Workers) that agencies can adopt, likely building on Marketplace and Templates.
+- **AI Evaluations** — systematic quality measurement of Worker behavior: test suites, scoring, regression detection across Worker Versions. Consumes Runtime traces; owns evaluation definitions and results.
+- **Experiments** — controlled A/B testing of Worker configurations, prompts, or models, with assignment and outcome measurement. Would coordinate with Analytics and (future) Prompt Library.
+- **Feature Flags** — controlled rollout and gating of platform capabilities per Organization or plan. A generic domain that would centralize toggles currently implied by Billing entitlements.
+
+When any of these becomes real, it follows the process in **Domain Evolution** below: an ADR, a detailed section here, and an explicit ownership assignment before implementation.
+
 ---
 
 ## Cross-Cutting Concerns
@@ -547,7 +687,53 @@ Some concerns are not domains but apply across all of them, and every subsystem 
 
 **Observability.** The AI Runtime is observable by design (runs, steps, LLM calls, tool calls, token and cost usage). Sensitive actions are audited. Operational metrics are aggregated by Analytics.
 
-**Ubiquitous language.** All domains use the terms defined in `docs/00-foundation/GLOSSARY.md`. The internal term `Worker` and the customer-facing term `Agent` refer to the same concept; `User` (platform login) and `Customer` (external contact) are always distinct.
+**Secrets & credentials.** No domain persists a raw credential. Every credential, token, API key, and encryption key lives in the Secrets domain; other domains (Channel, Integrations, Billing, credentialed Skills) hold only references and receive plaintext only at point of use under an authorized, audited grant.
+
+**Ubiquitous language.** All domains use the terms defined in `docs/00-foundation/GLOSSARY.md`. The internal term `Worker` and the customer-facing term `Agent` refer to the same concept; `User` (platform login) and `Customer` (external contact) are always distinct. New terms introduced by this document (Operators, Integration Connection, Secret, Prompt Profile, Runtime components, etc.) must be added to the glossary before dependent specs rely on them.
+
+---
+
+## Cross-Domain Relationships
+
+This section makes the rules of interaction explicit: who may call whom synchronously, who owns which data, and who publishes and consumes which events. It expands the Domain Interaction Diagram from a single flow into the general contract.
+
+### Interaction Rules
+
+- **Synchronous calls follow the dependency direction only.** A domain may call another synchronously only where a dependency is declared (the arrows in the Bounded-Context Diagram and the matrix below). Calls never go "up" from a depended-upon domain back into its caller; that coupling is expressed with events instead.
+- **Every domain owns its own data and is the sole writer of it.** Other domains reference it by identifier and read it through the owner's published interface — never by reaching into the owner's store. The Ownership Summary is authoritative for "who owns this."
+- **Cross-domain change is event-first.** When something needs to happen in another domain as a *consequence* (not a prerequisite) of an action, the acting domain publishes a domain event and the interested domain consumes it. Synchronous calls are reserved for data a domain needs *right now* to complete its own operation (e.g., the Runtime loading a Worker Version).
+- **Generic domains are consumers, not sources.** Analytics, Notification, Billing, and Audit consume events and never own core business data; nothing depends on them synchronously in the critical path.
+- **The tenant boundary is universal.** Every call and every event carries the Organization scope; no interaction crosses tenants.
+
+### Dependency Matrix
+
+"May call" lists the domains a given domain is permitted to invoke synchronously to do its own job. "Publishes" and "Consumes" list representative domain events (not exhaustive; payloads are defined per-subsystem). A domain with no synchronous callers in the critical path is marked accordingly.
+
+| Domain | May call (synchronous) | Publishes (key events) | Consumes (key events) |
+|--------|------------------------|------------------------|-----------------------|
+| Organization | Identity & Access | OrganizationCreated, MemberRoleChanged | UserRegistered |
+| Identity & Access | Organization | UserRegistered, PermissionDenied, RoleAssigned | MemberRoleChanged |
+| Worker (Agent) | Organization, Skill (validate), Knowledge (validate) | WorkerVersionPublished, WorkerActivated | SkillDeprecated, KnowledgeSourceRemoved |
+| AI Runtime | Worker, Conversation, Memory, Knowledge, Skill, Operators | RunStarted, RunCompleted, WorkerResponded, TokenUsageRecorded | MessageReceived, HumanHandoffStarted/Ended |
+| Conversation | Organization, Customer, Channel, Media & Storage | MessageReceived, MessageSent, HandoffRequested, ConversationClosed | WorkerResponded, MessageDeliveryUpdated, ConversationAssigned |
+| Customer | Organization | CustomerCreated, CustomerMerged | MessageReceived |
+| Channel | Conversation, Customer, Media & Storage, Secrets | WebhookReceived, MessageReceived, MessageDeliveryUpdated | MessageSent / WorkerResponded |
+| Skill | Identity & Access, Knowledge, Integrations | SkillExecuted, SkillExecutionFailed | WorkerVersionPublished |
+| Knowledge | Media & Storage, Organization | KnowledgeIngestionCompleted, KnowledgeSourceRemoved | — |
+| Memory | Customer, Conversation, Organization | MemoryExtracted, MemoryUpdated | WorkerResponded / MessageReceived |
+| Operators | Identity & Access, Organization, Conversation | HumanHandoffStarted/Ended, ConversationAssigned, OperatorPresenceChanged | HandoffRequested |
+| Workflow | Skill, Conversation, Organization | WorkflowRunStarted/Completed/Failed | MessageReceived, CustomerCreated, SkillExecuted (as triggers) |
+| Integrations | Secrets, Identity & Access, Organization | IntegrationConnected, IntegrationRevoked, IntegrationReauthorizationRequired | OrganizationSuspended, SecretRotated |
+| Secrets | Identity & Access, Organization | SecretCreated, SecretRotated, SecretRevoked, SecretAccessed | OrganizationSuspended, IntegrationRevoked |
+| Analytics | *(none — event consumer)* | UsageAggregated, CostThresholdReached | RunCompleted, TokenUsageRecorded, MessageReceived/Sent, SkillExecuted, HumanHandoffStarted |
+| Notification | Identity & Access, Organization | NotificationCreated, NotificationDelivered | HumanHandoffStarted, RunFailed, KnowledgeIngestionFailed, CostThresholdReached |
+| Billing | Analytics, Organization | SubscriptionCreated, PlanLimitReached, InvoiceIssued | UsageAggregated, OrganizationCreated |
+| Audit | *(none — event sink)* | *(none)* | PermissionDenied, RoleAssigned, SkillExecuted, SecretAccessed, IntegrationRevoked, HumanHandoffStarted, WorkerVersionPublished |
+| Media & Storage | Organization | ObjectStored, ObjectDeleted | — |
+
+### Reading the Matrix
+
+The core write-path (inbound message → response) is the row for **AI Runtime**: it may synchronously call Worker, Conversation, Memory, Knowledge, Skill, and Operators, because it needs each of them to complete a run. Everything downstream of the response — Analytics, Notification, Billing, Audit — appears only in "Consumes," confirming they never sit in the critical path. **Secrets** is called by exactly the domains that reference credentials (Integrations, Channel) and depends only on Identity & Access and Organization, keeping the vault at the bottom of the dependency graph. No domain both depends on and is depended upon by the same peer synchronously, so there are no dependency cycles.
 
 ---
 
@@ -559,20 +745,25 @@ Each entity is owned by exactly one domain. This table is the quick reference fo
 |---------|---------------|
 | Organization, Membership, Client | Organization |
 | User, Role, Permission, Session | Identity & Access |
-| Worker, Brain, Worker Version, Policy | Worker (Agent) |
-| Runtime Run, Runtime Step, LLM Call record | AI Runtime |
-| Conversation, Message, Handoff state | Conversation |
+| Worker, Brain, Goals, Capabilities, Prompt Profile, Personality, Runtime Configuration, Policy, Skill/Knowledge/Channel attachments, Worker Version | Worker (Agent) |
+| Runtime Run, Runtime Step, LLM Call record (Context Builder, Prompt Builder, Planner, Tool Loop, Tool Registry, LLM Provider, Response Builder, Memory Extractor are internal components, not separately-owned entities) | AI Runtime |
+| Conversation, Message, thread Handoff status (flag + operator reference) | Conversation |
 | Customer, Customer identifiers | Customer |
 | Channel, Adapter, Webhook event, Send attempt | Channel |
 | Skill definition, Skill Registry | Skill |
 | Knowledge Source, Chunk, Embedding | Knowledge |
 | Customer Memory fact | Memory |
+| Operator, Presence/Availability, Queue, Assignment, Handoff lifecycle | Operators |
 | Workflow, Workflow Run | Workflow |
+| Integration Provider, Integration Connection | Integrations |
+| Secret, Encryption Key, Secret access grant | Secrets |
 | Metric, Cost/token rollup | Analytics |
 | Notification, Notification preference | Notification |
 | Subscription, Plan, Usage meter | Billing |
 | Audit Log entry | Audit |
 | Stored Object reference | Media & Storage |
+
+Note on shared concepts: the **Prompt Profile** is owned solely by Worker (not a Prompt domain); **credentials/tokens** are owned solely by Secrets (Channel, Integrations, and Billing hold only references); the **Assignment** and **Handoff lifecycle** are owned solely by Operators (Conversation holds only a status flag and operator reference). No concept appears under two domains.
 
 ---
 
@@ -585,7 +776,11 @@ Each entity is owned by exactly one domain. This table is the quick reference fo
 - **Analytics, Billing, Notification, and Audit are event-driven, downstream consumers.** They never own source-of-truth business data, which keeps the core domains free of reporting and commercial concerns.
 - **Workflow is deliberately separated from the AI Runtime**, per `DECISIONS.md`, so deterministic automation never entangles with nondeterministic reasoning.
 - **Media & Storage is a supporting shared capability**, so Conversation and Knowledge reference stored objects rather than each implementing storage.
-- Domains **Workflow, Billing, and (optionally) Client** are anticipated for V1; they are mapped now so MVP boundaries do not have to be re-cut later.
+- **Prompt stays inside Worker** as the Prompt Profile rather than becoming its own domain, because a prompt has no lifecycle independent of the Worker Version that binds it. It graduates to a Prompt Library only when prompts become shared, governed, independently-versioned assets (see the Prompt evaluation under Worker and Future Domains).
+- **Operators is split out of Conversation.** Operator presence, availability, queues, assignment, and the handoff process are a distinct concern with a cross-thread lifecycle. Conversation keeps only a handoff status flag and an operator reference, so the message record stays clean and routing can evolve independently.
+- **Secrets is the sole owner of credential material; Integrations owns connections, not credentials.** Integrations orchestrates OAuth and exposes authorized connection handles, while the tokens themselves live in Secrets. Skills consume Integrations and never touch OAuth or raw credentials. This keeps a single vault and a single connection broker, with a clean separation between "what we connect to" and "the secret that authorizes it."
+- **The AI Runtime's internal pipeline (Context Builder, Prompt Builder, Planner, Tool Loop, Tool Registry, LLM Provider, Response Builder, Memory Extractor) is modeled as conceptual components within one bounded context**, not as separate domains, because they share a single execution lifecycle and observability record. The Tool Registry is explicitly a runtime projection of the Skill domain's authoritative registry, not a second source of truth.
+- Domains **Workflow, Billing, and (optionally) Client** are anticipated for V1, and **Operators, Integrations, and Secrets** are introduced now because credentialed external access and human handoff are needed early; all are mapped now so MVP boundaries do not have to be re-cut later.
 
 ## Implementation Notes
 
@@ -603,4 +798,38 @@ Each entity is owned by exactly one domain. This table is the quick reference fo
 - [ ] All terms used match `docs/00-foundation/GLOSSARY.md`; no term is introduced here without a glossary entry.
 - [ ] No implementation detail (schema, code, API payloads) is present — the document stays at the domain level.
 - [ ] The map is consistent with `docs/00-foundation/DECISIONS.md` and `MASTER_ARCHITECTURE.md`; any divergence is resolved or recorded as an ADR.
+- [ ] No credential, token, or key is owned by any domain other than Secrets; all others hold only references.
+- [ ] Operator presence, queues, assignment, and handoff process are owned by Operators; Conversation holds only a status flag and operator reference.
+- [ ] Skills reach external systems only through Integrations; no Skill owns OAuth or credentials.
+- [ ] The Prompt-vs-Worker decision is recorded and the Prompt Profile is single-owned by Worker.
+- [ ] The dependency matrix contains no cycles: no two domains depend on each other synchronously.
+- [ ] Database design (`docs/03-database/`) can begin directly from this map, with every table's owning domain unambiguous.
 - [ ] Reviewers from product and engineering agree the boundaries and ownership are correct before dependent specs are written.
+
+---
+
+## Domain Evolution
+
+This document is living, but it changes under discipline. The domain model is the foundation every other spec rests on, so uncontrolled edits here ripple everywhere. The following process governs how the map evolves.
+
+### Introducing a New Domain
+
+A new domain is warranted only when a genuinely new area of responsibility appears that cannot fit an existing domain without violating single-ownership or blurring a boundary. Signs a new domain is justified: an entity would otherwise be co-owned by two domains; a distinct lifecycle or scaling shape is being forced into an aggregate built for something else; or a new external concern (a class of integrations, a compliance surface) has no natural home. Convenience or a new folder is *not* a reason.
+
+To introduce one: (1) write an ADR in `docs/adr/` stating the need, the boundary, and the alternatives considered (including "extend an existing domain"); (2) add a detailed section to this map using the standard structure (purpose, owned entities, responsibilities, invariants, dependencies, events, APIs, boundaries, out-of-scope); (3) classify it as core, supporting, or generic; (4) update the Domain Catalog, the Bounded-Context Diagram, the Dependency Matrix, and the Ownership Summary; and (5) only then allow dependent specs or implementation to reference it. Future Domains listed above are pre-approved *candidates* but still require this process when actually built.
+
+### Changing Ownership of a Concept
+
+Moving an entity or responsibility from one domain to another is the highest-risk change here, because it invalidates assumptions in database, backend, and runtime specs. It requires an ADR that records what moved, why, and the migration implication, followed by a single atomic update to this map: the Ownership Summary, both affected domain sections, and the Dependency Matrix must change together so the document is never internally inconsistent. The single-owner rule is absolute — at no point may a concept appear under two domains, even transiently in the document. Downstream specs that referenced the old owner must be updated in the same change set or explicitly flagged.
+
+### Splitting or Merging Domains
+
+Splitting a domain (as Operators was split from Conversation) follows the "introduce a new domain" process plus an explicit re-assignment of every moved entity. Merging two domains requires an ADR justifying that the boundary was wrong, and a reconciliation of their events and dependencies. Either way, the Design Decisions section records the rationale so future readers understand why the boundary sits where it does.
+
+### The Role of ADRs
+
+Every structural change to the domain model — new domain, ownership move, split, merge, or a reclassification between core/supporting/generic — is recorded as an Architecture Decision Record. ADRs are immutable once accepted; a later decision supersedes an earlier one rather than editing it. The narrative rationale may also be summarized in this document's Design Decisions section and in `docs/00-foundation/DECISIONS.md`, but the ADR is the authoritative, referenceable record. This keeps the domain map's *current state* clean while preserving the full history of *why* it looks the way it does.
+
+### Versioning and Review
+
+Treat this map as versioned alongside the code it governs. Material changes are reviewed by both product and engineering, because domain boundaries encode product intent as much as technical structure. When this document and an implemented module disagree, the map is corrected deliberately (with an ADR if the boundary itself changed) — the two must never silently diverge.
