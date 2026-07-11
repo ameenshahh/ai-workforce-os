@@ -4,90 +4,92 @@ This is the top-level task tracker for the Architecture Phase. Each section corr
 
 Work top to bottom: foundation and architecture must be stable before subsystem specs are finalized.
 
+**Status:** Phase 1 design specifications are complete for Foundation, Architecture, Database, Backend, AI Runtime, Skills, Knowledge, Memory, Workflow, and Frontend. **Deployment** and **Testing** strategy docs are still outstanding. A few items remain for implementation time (e.g., enumerating the concrete MVP skill set).
+
 ## Foundation
 
-- [ ] Complete `docs/00-foundation/PROJECT_VISION.md` review and sign-off
-- [ ] Write `docs/00-foundation/MASTER_ARCHITECTURE.md` (the anchor document)
-- [ ] Complete `docs/00-foundation/ENGINEERING_PRINCIPLES.md`
-- [ ] Complete `docs/00-foundation/QUALITY_GATES.md`
-- [ ] Finalize `docs/00-foundation/GLOSSARY.md` with all core terms
-- [ ] Keep `docs/00-foundation/DECISIONS.md` current with each major decision
-- [ ] Review `docs/00-foundation/CLAUDE.md` for phase-appropriate constraints
+- [x] Complete `docs/00-foundation/PROJECT_VISION.md` review and sign-off
+- [x] Write `docs/00-foundation/MASTER_ARCHITECTURE.md` (the anchor document)
+- [x] Complete `docs/00-foundation/ENGINEERING_PRINCIPLES.md`
+- [x] Complete `docs/00-foundation/QUALITY_GATES.md`
+- [x] Finalize `docs/00-foundation/GLOSSARY.md` with all core terms
+- [x] Keep `docs/00-foundation/DECISIONS.md` current with each major decision
+- [x] Review `docs/00-foundation/CLAUDE.md` for phase-appropriate constraints
 
 ## Architecture
 
-- [ ] Define module boundaries and responsibilities in `docs/02-architecture/`
-- [ ] Document the modular-monolith structure and folder conventions
-- [ ] Specify cross-module communication and public interfaces
-- [ ] Specify the domain event model and event catalog
-- [ ] Document the request lifecycle and error-handling strategy
-- [ ] Author ADRs `adr/0001`–`adr/0006`
+- [x] Define module boundaries and responsibilities (MASTER_ARCHITECTURE §5 + DOMAIN_MAP)
+- [x] Document the modular-monolith structure and folder conventions
+- [x] Specify cross-module communication and public interfaces
+- [x] Specify the domain event model and event catalog (DOMAIN_MAP dependency matrix + backend §17)
+- [x] Document the request lifecycle and error-handling strategy
+- [x] Author ADRs `adr/0001`–`adr/0006` (plus 0007 NestJS, 0008 server-side skills)
 
 ## Database
 
-- [ ] Complete the domain model in `docs/01-domain/DOMAIN_MAP.md`
-- [ ] Design the core schema (organizations, users, workers, customers, conversations, messages)
-- [ ] Define multi-tenancy and `organization_id` scoping rules
-- [ ] Define ID strategy, timestamps, and soft-delete conventions
-- [ ] Specify indexing strategy for common query patterns
-- [ ] Specify pgvector usage for knowledge embeddings
-- [ ] Define the migration and versioning process
+- [x] Complete the domain model in `docs/01-domain/DOMAIN_MAP.md`
+- [x] Design the core schema (organizations, users, workers, customers, conversations, messages)
+- [x] Define multi-tenancy and `organization_id` scoping rules
+- [x] Define ID strategy, timestamps, and soft-delete conventions
+- [x] Specify indexing strategy for common query patterns
+- [x] Specify pgvector usage for knowledge embeddings
+- [x] Define the migration and versioning process
 
 ## Backend
 
-- [ ] Specify the controller/service/repository layering rules
-- [ ] Define DTO, validation, and response-envelope conventions
-- [ ] Define the REST API versioning and pagination standards
-- [ ] Specify authentication and authorization design
-- [ ] Specify the BullMQ job and queue design (idempotency, retries)
-- [ ] Define webhook ingestion and deduplication design
+- [x] Specify the controller/service/repository layering rules
+- [x] Define DTO, validation, and response-envelope conventions
+- [x] Define the REST API versioning and pagination standards
+- [x] Specify authentication and authorization design
+- [x] Specify the BullMQ job and queue design (idempotency, retries)
+- [x] Define webhook ingestion and deduplication design
 
 ## AI Runtime
 
-- [ ] Specify the Worker Runtime lifecycle (event → context → LLM → response)
-- [ ] Define prompt construction and context-window management
-- [ ] Specify LLM provider access via LiteLLM
-- [ ] Specify OpenAI tool-calling integration and bounded tool loops
-- [ ] Define runtime observability (runs, steps, token/cost tracking)
-- [ ] Specify human-handoff behavior within the runtime
+- [x] Specify the AI Runtime lifecycle (event → context → LLM → response)
+- [x] Define prompt construction and context-window management
+- [x] Specify LLM provider access via LiteLLM
+- [x] Specify OpenAI tool-calling integration and bounded tool loops
+- [x] Define runtime observability (runs, steps, token/cost tracking)
+- [x] Specify human-handoff behavior within the runtime
 
 ## Skills
 
-- [ ] Define the skill contract (schemas, permissions, timeout, retry, idempotency)
-- [ ] Specify the skill registry design
-- [ ] Specify the skill execution flow and authorization checks
-- [ ] Define the initial set of MVP skills
-- [ ] Define skill versioning and metadata
+- [x] Define the skill contract (schemas, permissions, timeout, retry, idempotency)
+- [x] Specify the skill registry design
+- [x] Specify the skill execution flow and authorization checks
+- [ ] Define the initial set of MVP skills (enumerate at implementation time)
+- [x] Define skill versioning and metadata
 
 ## Knowledge
 
-- [ ] Specify knowledge source ingestion and storage (S3 originals)
-- [ ] Define text extraction and deterministic chunking
-- [ ] Specify asynchronous embedding generation
-- [ ] Specify organization-scoped retrieval and ranking
-- [ ] Define citation and source-reference behavior in responses
+- [x] Specify knowledge source ingestion and storage (S3 originals)
+- [x] Define text extraction and deterministic chunking
+- [x] Specify asynchronous embedding generation
+- [x] Specify organization-scoped retrieval and ranking
+- [x] Define citation and source-reference behavior in responses
 
 ## Memory
 
-- [ ] Define the customer memory model (facts, source, confidence, timestamps)
-- [ ] Specify asynchronous memory extraction
-- [ ] Define conflict-resolution rules for competing memories
-- [ ] Specify privacy constraints on what may be stored
+- [x] Define the customer memory model (facts, source, confidence, timestamps)
+- [x] Specify asynchronous memory extraction
+- [x] Define conflict-resolution rules for competing memories
+- [x] Specify privacy constraints on what may be stored
 
 ## Workflow
 
-- [ ] Define the deterministic workflow model (triggers, conditions, actions)
-- [ ] Specify separation between workflows and the AI runtime
-- [ ] Define workflow run auditing
-- [ ] Specify explicit LLM actions within workflows
+- [x] Define the deterministic workflow model (triggers, conditions, actions)
+- [x] Specify separation between workflows and the AI runtime
+- [x] Define workflow run auditing
+- [x] Specify explicit LLM actions within workflows
 
 ## Frontend
 
-- [ ] Define the Next.js App Router structure in `docs/06-frontend/`
-- [ ] Specify Tailwind and shadcn/ui conventions
-- [ ] Design the worker configuration experience
-- [ ] Design the unified conversation inbox and human-takeover UI
-- [ ] Specify realtime update patterns (inbox, runtime status)
+- [x] Define the Next.js App Router structure in `docs/06-frontend/`
+- [x] Specify Tailwind and shadcn/ui conventions
+- [x] Design the worker (Agent) configuration experience
+- [x] Design the unified conversation inbox and human-takeover UI
+- [x] Specify realtime update patterns (inbox, runtime status)
 
 ## Deployment
 

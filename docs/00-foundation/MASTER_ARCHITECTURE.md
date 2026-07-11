@@ -754,10 +754,10 @@ Every significant technology and structural choice is recorded as an Architectur
 - **REST first** — `docs/adr/0005-rest-api.md`. Versioned REST for the dashboard and integrations; WebSockets only for realtime inbox and runtime updates. GraphQL is deferred until product needs justify its complexity.
 - **pgvector** — `docs/adr/0006-pgvector.md`. Vector similarity search lives inside PostgreSQL via the pgvector extension, so retrieval-augmented generation needs no separate vector database during the MVP.
 
-Two further decisions are load-bearing and will be formalized as their own ADRs as they mature:
+Two further decisions are load-bearing and recorded as their own ADRs:
 
-- **NestJS with TypeScript strict mode** as the backend framework — feature-first modules, dependency injection, and guards that match the modular-monolith and repository patterns.
-- **Server-side skills only** — Skills are registered TypeScript executors; no dynamic third-party code execution in the MVP, for security, reliability, and debuggability. Skills reach external systems only through the Integrations module.
+- **NestJS with TypeScript strict mode** — `docs/adr/0007-nestjs.md`. Feature-first modules, dependency injection, and guards that match the modular-monolith and repository patterns.
+- **Server-side skills only** — `docs/adr/0008-server-side-skills.md`. Skills are registered TypeScript executors; no dynamic third-party code execution in the MVP, for security, reliability, and debuggability. Skills reach external systems only through the Integrations module.
 
 ## 23. Forbidden Patterns
 
