@@ -469,7 +469,7 @@ Webhook controllers must not:
 
 - Call LLMs.
 - Execute skills.
-- Run the full Worker Runtime.
+- Run the full AI Runtime.
 - Perform slow external calls.
 
 ## 20. Configuration
