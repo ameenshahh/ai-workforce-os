@@ -23,17 +23,22 @@ The MVP avoids microservices, Kubernetes, Kafka, dynamic third-party skill loadi
 
 The platform exposes "AI Agents" to customers but uses `Worker` internally.
 
-A Worker is an AI employee with:
+A Worker is the product's central aggregate — a single consistency boundary whose facets are configured, versioned, and rolled back together. The authoritative model lives in `docs/01-domain/DOMAIN_MAP.md`; this section summarizes it. A Worker is an AI employee composed of:
 
-- Brain: model, prompt, behavior, tone, response policy
-- Skills: server-side executable capabilities
-- Knowledge: retrievable content from documents and sources
-- Memory: structured customer facts and future worker-level memory
-- Channels: connected messaging transports
-- Policies: constraints and approvals
-- Goals: configured business objectives
-- Metrics: success, cost, latency, usage, and quality indicators
-- Versions: immutable snapshots of configuration
+- Brain: the reasoning core — model and model-level reasoning settings.
+- Goals: the business outcomes the Worker is configured to pursue.
+- Capabilities: the declared high-level abilities the Worker may exercise (realized concretely by Skill Attachments).
+- Prompt Profile: the authored, versioned prompt material — system prompt, tone/format rules, reusable fragments. (Owned inside Worker; see the Prompt evaluation in the Domain Map.)
+- Policies: constraints and approvals enforced by the runtime before a response is sent. (Owned inside Worker; see the Policy evaluation in the Domain Map.)
+- Skill Attachments: references to Skills the Worker may invoke, pinned to Skill versions.
+- Knowledge Attachments: references to Knowledge sources the Worker may retrieve from.
+- Channel Bindings: connected messaging transports the Worker operates on.
+- Runtime Configuration: declarative execution settings the runtime honors (tool-loop limits, retrieval breadth, latency/cost ceilings).
+- Personality: the durable persona (name, voice, character) shaping tone across conversations.
+- Metrics: success, cost, latency, usage, and quality indicators (derived by Analytics, targets configured here).
+- Version: an immutable snapshot binding all of the above, including pinned Skill/Knowledge versions, for reproducibility.
+
+Ownership note: the Worker owns configuration and identity; it references Skills, Knowledge, and Channels (owned by their domains) via attachments, and does not execute — execution is the AI Runtime's responsibility.
 
 This model allows the product to grow beyond chatbots into sales, support, booking, marketing, and operations workers.
 
@@ -43,16 +48,23 @@ This model allows the product to grow beyond chatbots into sales, support, booki
 
 Use one backend application with strong module boundaries.
 
-Acceptable:
+Acceptable (one module per domain; see §5 for the full list):
 
 - `WorkersModule`
 - `ConversationsModule`
+- `CustomersModule`
+- `OperatorsModule`
 - `ChannelsModule`
+- `IntegrationsModule`
+- `SecretsModule`
 - `SkillsModule`
 - `KnowledgeModule`
 - `MemoryModule`
 - `RuntimeModule`
 - `WorkflowModule`
+- `NotificationModule`
+- `AnalyticsModule`
+- `AuditModule`
 
 Not acceptable:
 
@@ -98,7 +110,7 @@ Every tenant-owned record must include `organization_id` unless there is a docum
 
 ### 3.5 Async Runtime
 
-Inbound webhooks must enqueue work and return quickly. Worker runtime processing occurs in BullMQ workers. Long-running work must never block webhook response paths.
+Inbound webhooks must enqueue work and return quickly. AI Runtime processing occurs in BullMQ workers. Long-running work must never block webhook response paths.
 
 ### 3.6 Server-Side Skills
 
@@ -134,19 +146,25 @@ flowchart LR
     Customer["Customer"] --> Channels["WhatsApp / Instagram / Messenger / Web Chat"]
     Channels --> Webhooks["Webhook Controllers"]
     Webhooks --> Queue["BullMQ Queues"]
-    Queue --> Runtime["Worker Runtime"]
-    Runtime --> LLM["LLM Gateway"]
+    Queue --> Runtime["AI Runtime"]
+    Runtime --> LLM["LLM Provider / Gateway"]
     Runtime --> Skills["Server-Side Skills"]
     Runtime --> DB["PostgreSQL + pgvector"]
     Runtime --> Redis["Redis"]
     Runtime --> Storage["S3-Compatible Storage"]
-    Skills --> External["CRM / Calendar / Email / Payment / APIs"]
+    Runtime --> Operators["Operators (human handoff)"]
+    Skills --> Integrations["Integrations"]
+    Integrations --> External["CRM / Calendar / Email / Payment / APIs"]
+    Integrations --> Secrets["Secrets"]
+    Channels --> Secrets
     Runtime --> Channels
 ```
 
 ## 5. Backend Modules
 
-### 5.1 Auth Module
+Each module maps one-to-one to a domain in `docs/01-domain/DOMAIN_MAP.md` and owns that domain's data and rules. Two mappings are not name-identical: the **Identity & Access** domain is implemented as the **Auth** and **Users** modules, and the **Organization** domain is the **Organizations** module. Every other domain is a single module of the same name. No module reads another module's tables; cross-module needs go through public services or domain events.
+
+### 5.1 Auth Module (Identity & Access)
 
 Responsibilities:
 
@@ -159,7 +177,16 @@ Responsibilities:
 - Session tracking
 - Authentication guards
 
-### 5.2 Organizations Module
+### 5.2 Users Module (Identity & Access)
+
+Responsibilities:
+
+- User profiles
+- Role assignment
+- User settings
+- Membership lookup
+
+### 5.3 Organizations Module
 
 Responsibilities:
 
@@ -169,64 +196,83 @@ Responsibilities:
 - Membership
 - Invitations
 
-### 5.3 Users Module
+### 5.4 Secrets Module
 
 Responsibilities:
 
-- User profiles
-- Role assignment
-- User settings
-- Membership lookup
+- Encrypted storage of credentials, API keys, OAuth tokens, and encryption keys
+- Scoped, short-lived release of a secret value to an authorized caller at point of use
+- Secret rotation and revocation
+- Emission of rotation/revocation signals for dependent modules
 
-### 5.4 Workers Module
+No plaintext at rest, no bulk export, no logging of secret values; every access is authorized and audited. Channels, Integrations, Billing, and credentialed Skills hold only *references* to Secrets — never the values.
 
-Responsibilities:
-
-- Worker CRUD
-- Worker configuration
-- Worker versioning
-- Worker status
-- Skill attachment
-- Channel attachment
-- Policy configuration
-
-### 5.5 Conversations Module
+### 5.5 Workers Module
 
 Responsibilities:
 
-- Conversation creation and retrieval
-- Message persistence
-- Inbox views
-- Human handoff
-- Conversation status
-- Assignment to human operators
+- Worker CRUD and configuration (Brain, Goals, Capabilities, Prompt Profile, Policies, Personality, Runtime Configuration)
+- Worker versioning and rollback (immutable snapshots with pinned Skill/Knowledge versions)
+- Worker status and activation
+- Skill, Knowledge, and Channel attachment
+- Policy configuration (Policies remain a Worker facet; see the Policy evaluation in the Domain Map)
 
 ### 5.6 Channels Module
 
 Responsibilities:
 
 - Channel abstraction
-- Webhook normalization
-- Outbound message dispatch
-- Channel credential storage
+- Webhook normalization and verification
+- Inbound event deduplication
+- Outbound message dispatch and delivery status
+- Channel configuration (credentials stored in the Secrets module and referenced here)
 - WhatsApp adapter
 - Instagram adapter
 - Facebook adapter
 - Future web chat adapter
 
-### 5.7 Runtime Module
+### 5.7 Customers Module
+
+Responsibilities:
+
+- Customer profiles
+- Per-channel contact identifiers
+- Cross-channel identity resolution and de-duplication
+- Customer attributes and tags
+
+### 5.8 Conversations Module
+
+Responsibilities:
+
+- Conversation creation and retrieval
+- Message persistence with authorship and ordering
+- Inbox views
+- Conversation status
+- Handoff status flag and a reference to the assigned Operator (operator management is owned by the Operators module, not here)
+
+### 5.9 Operators Module
+
+Responsibilities:
+
+- Operator profiles and presence/availability
+- Queues and routing rules
+- Assignment and reassignment of conversations to operators
+- Human-handoff lifecycle (request, claim, active, return)
+
+### 5.10 Runtime Module (AI Runtime)
 
 Responsibilities:
 
 - Worker execution lifecycle
 - Runtime context building
 - Prompt orchestration
-- Tool calling loop
-- Runtime state tracking
-- Execution timeline
+- Planning and the tool-calling loop
+- Tool registry (runtime projection of the Skill registry, scoped to the Worker Version)
+- LLM provider abstraction (token/cost/latency capture)
+- Runtime state tracking and execution timeline
 - Error recovery
 
-### 5.8 Skills Module
+### 5.11 Skills Module
 
 Responsibilities:
 
@@ -238,7 +284,20 @@ Responsibilities:
 - Skill telemetry
 - Built-in skills
 
-### 5.9 Knowledge Module
+Skills reach external systems only through the Integrations module; they never own OAuth or credentials.
+
+### 5.12 Integrations Module
+
+Responsibilities:
+
+- Catalog of supported external providers (HubSpot, Salesforce, Gmail, Google Calendar, Slack, Jira, Shopify, Stripe, Notion, and future providers)
+- OAuth/authorization flows and connection lifecycle (connect, reconnect, revoke)
+- Connection status, scopes, and health
+- Authorized connection handles that Skills consume
+
+OAuth is orchestrated here; the resulting tokens are stored in the Secrets module, never in Integrations.
+
+### 5.13 Knowledge Module
 
 Responsibilities:
 
@@ -249,7 +308,7 @@ Responsibilities:
 - Vector search
 - Retrieval for runtime
 
-### 5.10 Memory Module
+### 5.14 Memory Module
 
 Responsibilities:
 
@@ -259,7 +318,7 @@ Responsibilities:
 - Memory conflict handling
 - Memory expiry and confidence
 
-### 5.11 Workflow Module
+### 5.15 Workflow Module
 
 Responsibilities:
 
@@ -270,7 +329,16 @@ Responsibilities:
 - Workflow runs
 - Scheduled jobs
 
-### 5.12 Analytics Module
+### 5.16 Notification Module
+
+Responsibilities:
+
+- Subscription to noteworthy domain events
+- Recipient resolution by role and preference
+- In-app and email notification delivery
+- Delivery and read-state tracking, respecting user preferences
+
+### 5.17 Analytics Module
 
 Responsibilities:
 
@@ -281,7 +349,7 @@ Responsibilities:
 - Cost tracking
 - Conversation outcomes
 
-### 5.13 Audit Module
+### 5.18 Audit Module
 
 Responsibilities:
 
@@ -289,6 +357,14 @@ Responsibilities:
 - Configuration change history
 - External side effect records
 - Compliance-ready audit trail
+
+### 5.19 Billing Module (deferred to V1)
+
+Not built in the MVP; listed so module boundaries leave room for it. Will own subscription plans, entitlements, and usage metering derived from Analytics. Payment-provider tokens are stored in the Secrets module; Billing never stores raw payment credentials. Usage and cost are tracked from the MVP (via Analytics) even before Billing charges for them.
+
+### Media & Storage
+
+Durable object storage (S3) is a supporting domain in the Domain Map. It is implemented as a shared storage capability that the Conversations (attachments) and Knowledge (source originals) modules reference by object handle rather than a feature module of its own. See §10 and `docs/01-domain/DOMAIN_MAP.md`.
 
 ## 6. Standard Request Lifecycle
 
@@ -320,10 +396,12 @@ sequenceDiagram
     participant Channel as WhatsApp/Instagram/Facebook
     participant Webhook as Webhook Controller
     participant Queue as BullMQ
-    participant Runtime as Worker Runtime
+    participant Runtime as AI Runtime
     participant DB as PostgreSQL
-    participant LLM as LLM Gateway
+    participant LLM as LLM Provider
     participant Skills as Skill Executor
+    participant Integrations as Integrations
+    participant Operators as Operators
     participant Adapter as Channel Adapter
 
     Channel->>Webhook: Inbound webhook
@@ -333,42 +411,56 @@ sequenceDiagram
     Webhook-->>Channel: 200 OK
     Queue->>Runtime: Process job
     Runtime->>DB: Resolve org/customer/conversation/worker
-    Runtime->>DB: Load memory and retrieve knowledge
-    Runtime->>LLM: Call model with tools
-    LLM-->>Runtime: Tool request or final response
-    Runtime->>Skills: Execute requested skill
-    Skills-->>Runtime: Skill result
-    Runtime->>LLM: Continue tool loop
-    LLM-->>Runtime: Final response
-    Runtime->>DB: Persist messages, timeline, memory
-    Runtime->>Adapter: Send outbound response
+    alt Conversation in human handoff
+        Runtime->>Operators: Leave thread to assigned operator (no AI response)
+    else Bot-driven
+        Runtime->>DB: Load memory and retrieve knowledge
+        Runtime->>LLM: Call model with tools
+        LLM-->>Runtime: Tool request or final response
+        Runtime->>Skills: Execute requested skill
+        opt Skill needs an external system
+            Skills->>Integrations: Call via authorized connection (token from Secrets)
+            Integrations-->>Skills: Result
+        end
+        Skills-->>Runtime: Skill result
+        Runtime->>LLM: Continue tool loop
+        LLM-->>Runtime: Final response
+        Runtime->>Runtime: Enforce policies on draft response
+        opt Policy requires human review
+            Runtime->>Operators: Request handoff instead of sending
+        end
+        Runtime->>DB: Persist messages, timeline, memory
+        Runtime->>Adapter: Send outbound response
+    end
 ```
 
-## 8. Worker Runtime Stages
+## 8. AI Runtime Stages
 
-The runtime must be implemented as explicit stages:
+The AI Runtime is a single bounded context organized into the conceptual components defined in `docs/01-domain/DOMAIN_MAP.md`: **Context Builder, Prompt Builder, Planner, Tool Loop, Tool Registry, LLM Provider, Response Builder, and Memory Extractor**. The explicit stages below realize those components; each stage names the component that owns it, and each must be independently testable.
 
-1. Normalize inbound event.
-2. Resolve organization.
-3. Resolve customer.
-4. Resolve conversation.
-5. Resolve worker.
-6. Load worker configuration.
-7. Check conversation state and handoff rules.
-8. Retrieve relevant memory.
-9. Retrieve relevant knowledge chunks.
-10. Build runtime context.
-11. Build prompt messages.
-12. Call LLM with available skills as tools.
-13. Execute requested skills.
-14. Repeat tool loop until final response or limit.
-15. Validate final response against policies.
-16. Persist assistant message.
-17. Extract and store memory.
-18. Dispatch outbound message.
-19. Record metrics and execution timeline.
+1. Normalize inbound event. *(Context Builder)*
+2. Resolve organization. *(Context Builder)*
+3. Resolve customer. *(Context Builder)*
+4. Resolve conversation. *(Context Builder)*
+5. Resolve worker and load the Worker Version. *(Context Builder)*
+6. Load worker configuration — Brain, Prompt Profile, Policies, Runtime Configuration. *(Context Builder)*
+7. Check conversation state and handoff rules; stop here if the thread is in human handoff. *(Context Builder)*
+8. Retrieve relevant memory. *(Context Builder)*
+9. Retrieve relevant knowledge chunks. *(Context Builder)*
+10. Assemble the runtime context. *(Context Builder)*
+11. Build prompt messages from context, Prompt Profile, and Personality. *(Prompt Builder)*
+12. Decide the next action — answer directly, retrieve more, or call a tool — within the configured budget. *(Planner)*
+13. Expose the Worker Version's attached Skills to the model as callable tools. *(Tool Registry — a projection of the Skill registry)*
+14. Call the model with the available tools. *(LLM Provider, driven by the Tool Loop)*
+15. Execute requested skills; external calls go through Integrations. *(Tool Loop → Skills)*
+16. Repeat plan → call → execute until a final response or the iteration limit. *(Tool Loop, always bounded)*
+17. Enforce Worker Policies on the draft response; route to human handoff if blocked. *(Response Builder)*
+18. Persist the assistant message. *(Response Builder)*
+19. Dispatch the outbound message to the Channel. *(Response Builder)*
+20. Extract and store memory, asynchronously. *(Memory Extractor)*
+21. Record metrics and the execution timeline. *(observability, spanning all components)*
 
-Each stage should be independently testable.
+The Planner corresponds to the `THINKING` state in the runtime state machine (§9); the Tool Loop cycles between `THINKING` and `EXECUTING_SKILLS`.
 
 ## 9. Runtime State Machine
 
@@ -400,18 +492,27 @@ stateDiagram-v2
 
 ## 10. Data Architecture
 
-Core table groups:
+Table groups follow domain ownership: each group is owned by exactly one domain (per `docs/01-domain/DOMAIN_MAP.md`), and no module reads another group's tables directly. Table names below are illustrative.
 
-- Identity: users, organizations, memberships, roles, permissions, sessions
-- Workers: workers, worker_versions, worker_skills, worker_channels, worker_policies
-- Channels: channel_connections, channel_credentials, inbound_events, outbound_messages
-- Conversations: customers, customer_channels, conversations, messages, attachments, handoff_events
+- Identity & Access: users, roles, permissions, sessions, api_keys (api_key secret values stored in Secrets)
+- Organization: organizations, memberships, invitations
+- Secrets: secrets, encryption_keys (holds every credential/token value referenced by other groups)
+- Workers: workers, worker_versions, worker_skills, worker_knowledge, worker_channels, worker_policies
+- Channels: channel_connections, inbound_events, outbound_messages (credentials referenced from Secrets)
+- Customers: customers, customer_channels
+- Conversations: conversations, messages, attachments (attachments reference Media & Storage objects)
+- Operators: operators, operator_presence, queues, assignments, handoff_events
 - Skills: skills, skill_executions, skill_permissions
+- Integrations: integration_providers, integration_connections (tokens referenced from Secrets)
 - Knowledge: knowledge_sources, knowledge_documents, knowledge_chunks, embeddings
 - Memory: customer_memories, memory_events
-- Runtime: runtime_runs, runtime_steps, llm_calls, token_usage
-- Workflows: workflows, workflow_versions, workflow_runs, workflow_steps
-- Operations: audit_logs, api_keys, notifications
+- AI Runtime: runtime_runs, runtime_steps, llm_calls, token_usage
+- Workflow: workflows, workflow_versions, workflow_runs, workflow_steps
+- Notification: notifications, notification_preferences
+- Analytics: usage_rollups, cost_rollups, metric_aggregates
+- Audit: audit_logs
+- Media & Storage: stored_objects (referenced by Conversations attachments and Knowledge sources)
+- Billing (V1, deferred): subscriptions, plans, usage_meters
 
 Detailed schemas belong in `docs/03-database/`.
 
@@ -554,7 +655,7 @@ Memory extraction should happen asynchronously after a message exchange. Runtime
 
 ## 17. Workflow Architecture
 
-Workflows are deterministic automations. They are separate from the Worker Runtime.
+Workflows are deterministic automations. They are separate from the AI Runtime.
 
 Examples:
 
@@ -618,7 +719,7 @@ Main product surfaces:
 - Dashboard
 - Unified inbox
 - Worker builder
-- Worker runtime timeline
+- AI Runtime execution timeline
 - Knowledge base
 - Customer profiles
 - Channel settings
@@ -642,7 +743,23 @@ MVP deployment can use:
 
 Avoid Kubernetes initially. Use Docker Compose locally and a simple production platform such as AWS ECS, Render, Fly.io, Railway, or similar until scale requires more.
 
-## 22. Forbidden Patterns
+## 22. Key Architectural Decisions & Rationale
+
+Every significant technology and structural choice is recorded as an Architecture Decision Record in `docs/adr/`. The ADRs are the authoritative, immutable record; this section is a readable summary with links. When a decision changes, a new ADR supersedes the old one and this summary is updated.
+
+- **Modular monolith** — `docs/adr/0001-modular-monolith.md`. One deployable NestJS app with strict per-domain module boundaries. Chosen so a small team can build and operate the platform without the networking, deployment, and transaction overhead of microservices, while clean boundaries keep future service extraction possible.
+- **PostgreSQL** — `docs/adr/0002-postgresql.md`. A single relational database for transactional consistency, strong tenant scoping, and a mature ecosystem, avoiding a separate datastore per concern in the MVP.
+- **Prisma** — `docs/adr/0003-prisma.md`. Typed data access and migrations with strong developer experience, confined to the repository layer; controllers and services never touch Prisma directly.
+- **BullMQ + Redis** — `docs/adr/0004-bullmq.md`. Redis-backed queues decouple fast webhook acknowledgement from slower runtime work and provide safe, bounded retries; every job is idempotent and organization-scoped.
+- **REST first** — `docs/adr/0005-rest-api.md`. Versioned REST for the dashboard and integrations; WebSockets only for realtime inbox and runtime updates. GraphQL is deferred until product needs justify its complexity.
+- **pgvector** — `docs/adr/0006-pgvector.md`. Vector similarity search lives inside PostgreSQL via the pgvector extension, so retrieval-augmented generation needs no separate vector database during the MVP.
+
+Two further decisions are load-bearing and will be formalized as their own ADRs as they mature:
+
+- **NestJS with TypeScript strict mode** as the backend framework — feature-first modules, dependency injection, and guards that match the modular-monolith and repository patterns.
+- **Server-side skills only** — Skills are registered TypeScript executors; no dynamic third-party code execution in the MVP, for security, reliability, and debuggability. Skills reach external systems only through the Integrations module.
+
+## 23. Forbidden Patterns
 
 Do not:
 
@@ -660,7 +777,7 @@ Do not:
 - Build dynamic third-party skill loading in MVP.
 - Hide runtime state inside an opaque external framework.
 
-## 23. Documentation Map
+## 24. Documentation Map
 
 This file defines system-wide rules. Detailed specs should live in:
 
@@ -675,7 +792,7 @@ This file defines system-wide rules. Detailed specs should live in:
 - `docs/09-prompts/` for Claude Code implementation prompts.
 - `docs/adr/` for numbered Architecture Decision Records.
 
-## 24. Acceptance Criteria for the Architecture
+## 25. Acceptance Criteria for the Architecture
 
 The architecture is successful if:
 
