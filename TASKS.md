@@ -4,7 +4,7 @@ This is the top-level task tracker for the Architecture Phase. Each section corr
 
 Work top to bottom: foundation and architecture must be stable before subsystem specs are finalized.
 
-**Status:** Phase 1 design specifications are complete for Foundation, Architecture, Database, Backend, AI Runtime, Skills, Knowledge, Memory, Workflow, and Frontend. **Deployment** and **Testing** strategy docs are still outstanding. A few items remain for implementation time (e.g., enumerating the concrete MVP skill set).
+**Status:** Phase 1 design specifications are **fully completed** across Foundation, Architecture, Database, Backend, AI Runtime, Skills, Knowledge, Memory, Workflow, Frontend, Deployment, and Testing. The only remaining item is enumerating the concrete MVP skill set, which is done at implementation time. The plan is ready to implement.
 
 ## Foundation
 
@@ -93,17 +93,17 @@ Work top to bottom: foundation and architecture must be stable before subsystem 
 
 ## Deployment
 
-- [ ] Define environments and configuration strategy
-- [ ] Specify infrastructure topology (Postgres, Redis, S3) at a design level
-- [ ] Define secrets handling and rotation
-- [ ] Specify observability, logging, and alerting design
-- [ ] Define the release and rollback process
+- [x] Define environments and configuration strategy
+- [x] Specify infrastructure topology (Postgres, Redis, S3) at a design level
+- [x] Define secrets handling and rotation
+- [x] Specify observability, logging, and alerting design
+- [x] Define the release and rollback process
 
 ## Testing
 
-- [ ] Define test levels and coverage expectations in `docs/08-testing/`
-- [ ] Specify tenant-isolation test requirements
-- [ ] Specify authorization and permission test requirements
-- [ ] Define runtime and skill testing approach
-- [ ] Define fixtures, factories, and test-data strategy
-- [ ] Tie testing requirements to `docs/00-foundation/QUALITY_GATES.md`
+- [x] Define test levels and coverage expectations in `docs/08-testing/`
+- [x] Specify tenant-isolation test requirements
+- [x] Specify authorization and permission test requirements
+- [x] Define runtime and skill testing approach
+- [x] Define fixtures, factories, and test-data strategy
+- [x] Tie testing requirements to `docs/00-foundation/QUALITY_GATES.md`
