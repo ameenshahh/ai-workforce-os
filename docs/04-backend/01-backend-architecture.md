@@ -40,7 +40,7 @@ The backend MVP will not:
 - Use Kubernetes-specific code.
 - Use GraphQL.
 - Use dynamic untrusted plugin execution.
-- Hide the Worker Runtime inside LangChain, AutoGen, or similar frameworks.
+- Hide the AI Runtime inside LangChain, AutoGen, or similar frameworks.
 - Allow controllers to contain business logic.
 - Allow Prisma access outside repositories.
 
@@ -89,16 +89,21 @@ backend/
       transaction-manager.ts
     modules/
       auth/
-      organizations/
       users/
+      organizations/
+      secrets/
       workers/
-      conversations/
       channels/
+      customers/
+      conversations/
+      operators/
+      runtime/
       skills/
+      integrations/
       knowledge/
       memory/
-      runtime/
       workflows/
+      notification/
       analytics/
       audit/
       queues/
@@ -113,6 +118,8 @@ backend/
 ```
 
 If a monorepo is later introduced, this backend can move to `apps/api/`. Do not introduce that structure until implementation needs justify it.
+
+The modules under `modules/` map one-to-one to the domains in `docs/01-domain/DOMAIN_MAP.md` and the modules in `MASTER_ARCHITECTURE.md` §5. Two mappings differ by name: Identity & Access is implemented as `auth` + `users`, and Organization is `organizations`. `secrets` is listed early because `channels` and `integrations` reference it. Billing is deferred to V1; Media & Storage is a shared capability referenced by `conversations` and `knowledge` rather than a feature module.
 
 ## 6. Standard Module Structure
 
@@ -155,7 +162,10 @@ Service -> Public service interface from another module
 Service -> Event publisher
 Service -> Queue producer
 Queue processor -> Service
-Runtime -> Public interfaces of workers, conversations, skills, knowledge, memory, channels
+Runtime -> Public interfaces of workers, conversations, skills, knowledge, memory, channels, operators
+Skills -> Integrations public interface
+Integrations -> Secrets public interface
+Channels -> Secrets public interface
 ```
 
 Forbidden:
@@ -167,6 +177,8 @@ Forbidden:
 - Module -> another module's private database tables
 - Runtime -> channel-specific webhook payloads
 - Skills -> runtime internals
+- Skills -> external systems directly (must go through Integrations)
+- Any module -> plaintext credentials (only Secrets holds credential values)
 
 ## 8. Request Context
 
@@ -331,9 +343,13 @@ conversations.read
 conversations.reply
 conversations.takeover
 channels.connect
+integrations.connect
+secrets.manage
+operators.manage
 knowledge.manage
 skills.manage
 workflows.manage
+notifications.read
 analytics.read
 ```
 
@@ -524,8 +540,9 @@ Emit audit logs for:
 - User invitations
 - Role changes
 - Worker publish events
-- Channel credential changes
-- Human handoff
+- Secret creation, rotation, revocation, and access
+- Integration connect/revoke and reauthorization
+- Human handoff (start, end, reassignment)
 - Skill configuration changes
 - API key creation/deletion
 
@@ -539,8 +556,11 @@ Example:
 - `RuntimeModule` calls `SkillsService.getAvailableToolsForWorker`.
 - `RuntimeModule` calls `KnowledgeService.retrieveForRuntime`.
 - `RuntimeModule` calls `MemoryService.getCustomerMemory`.
+- `RuntimeModule` requests human handoff via `OperatorsService` (it does not assign operators itself).
+- `SkillsService` obtains an authorized external connection via `IntegrationsService`, which reads tokens from `SecretsService`.
+- `ChannelsService` resolves credentials via `SecretsService`.
 
-The runtime should not query conversation tables, skill tables, knowledge tables, and memory tables directly.
+The runtime should not query conversation tables, skill tables, knowledge tables, and memory tables directly. No module reads credential values except through `SecretsService`.
 
 ## 25. Testing Strategy
 
@@ -566,7 +586,7 @@ Critical test cases:
 
 - Use password hashing with a modern algorithm.
 - Store refresh tokens hashed.
-- Encrypt provider credentials.
+- Store all provider and integration credentials in the Secrets module (encrypted); other modules hold only `secret_id` references.
 - Verify webhooks.
 - Apply rate limits.
 - Validate all input.
@@ -596,15 +616,20 @@ When backend implementation begins:
 4. Add common response/error/request context infrastructure.
 5. Add auth and organizations.
 6. Add users and memberships.
-7. Add workers.
-8. Add conversations.
-9. Add channels and webhook ingestion.
-10. Add queues.
-11. Add skills registry.
-12. Add LLM provider abstraction.
-13. Add runtime.
-14. Add knowledge and memory.
-15. Add workflows and analytics.
+7. Add secrets (needed before channels and integrations).
+8. Add workers.
+9. Add customers.
+10. Add conversations.
+11. Add channels and webhook ingestion.
+12. Add operators and human handoff.
+13. Add queues.
+14. Add skills registry.
+15. Add integrations (external connections consumed by skills).
+16. Add LLM provider abstraction.
+17. Add runtime.
+18. Add knowledge and memory.
+19. Add workflows.
+20. Add notification and analytics.
 
 ## 29. Things Claude Code Must Not Do
 
